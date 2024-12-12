@@ -310,7 +310,7 @@ def create_bluesky_thread(title, media_paths, author):
 
     try:
         parent_post = None
-        quoted_text = f'"{title}"\n- u/{author}'
+        quoted_text = f'"{title}"\n\n- u/{author}'
         text_chunks = split_into_thread(quoted_text)
         formatted_text = f"{text_chunks[0]}\n\n#f1 #formula1 #memes #{RACE_HASHTAG}"
         facets = create_hashtag_facets(formatted_text)
