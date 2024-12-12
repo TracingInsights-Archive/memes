@@ -1,0 +1,55 @@
+name: Hourly F1 Meme Poster
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Run every hour
+  workflow_dispatch:      # Allow manual triggers
+
+jobs:
+  post-memes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Create empty posted_ids.json if not exists
+      run: |
+        [ -f posted_ids.json ] || echo "[]" > posted_ids.json
+
+    - name: Run script
+      env:
+        REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+        REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+        REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+        BLUESKY_EMAIL: ${{ secrets.BLUESKY_EMAIL }}
+        BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+      run: python hello.py
+
+    - name: Sync and commit changes
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git stash
+        git pull origin main
+        git stash pop || true
+        git add posted_ids.json
+        git diff --staged --quiet || (git commit -m "Update posted_ids.json" && git push origin main)
