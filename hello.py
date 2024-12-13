@@ -198,6 +198,7 @@ def compress_video(video_path, max_size_kb=900):
 
     while min_crf <= max_crf:
         try:
+            # Base command with video settings
             cmd = [
                 "ffmpeg",
                 "-i",
@@ -218,6 +219,7 @@ def compress_video(video_path, max_size_kb=900):
                 f"{min(target_bitrate * 2, 2000)}k",
             ]
 
+            # Add audio settings only if audio stream exists
             if has_audio:
                 cmd.extend(
                     [
@@ -233,7 +235,10 @@ def compress_video(video_path, max_size_kb=900):
                         "0:a",
                     ]
                 )
+            else:
+                cmd.extend(["-an"])  # Explicitly specify no audio
 
+            # Add output path
             cmd.extend(["-y", output_path])
 
             logging.info(f"Attempting compression with CRF {current_crf}")
