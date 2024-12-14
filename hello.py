@@ -529,10 +529,8 @@ def get_media_urls(post):
             if "v.redd.it" in post.url and hasattr(post, "media"):
                 if post.media and "reddit_video" in post.media:
                     video_url = post.media["reddit_video"]["fallback_url"]
-                    audio_url = post.media["reddit_video"].get(
-                        "audio_url"
-                    )  # Get audio URL
-
+                    base_url = video_url.rsplit('/', 1)[0]
+                    audio_url = f"{base_url}/DASH_audio.mp4"
                     media_urls.append((video_url, audio_url))  # Append both as a tuple
                     logging.info(f"Added video URL: {video_url}")
                     if audio_url:
