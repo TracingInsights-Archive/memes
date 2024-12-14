@@ -174,13 +174,11 @@ def convert_gif_to_mp4(gif_path):
         return None
 
 
-def compress_video(video_path, max_size_kb=900):
+def compress_video(video_path, max_size_kb=900, has_audio=True):
     target_size = max_size_kb * 1024
     original_size = os.path.getsize(video_path)
-    has_audio = check_video_audio(video_path)
     duration = get_video_duration(video_path)
 
-    # Cap maximum bitrate at 2000k
     target_bitrate = min(2000, int((target_size * 8) / (duration * 1024)))
 
     logging.info(f"Original size: {original_size/1024:.2f}KB")
@@ -198,7 +196,6 @@ def compress_video(video_path, max_size_kb=900):
 
     while min_crf <= max_crf:
         try:
-            # Base command with video settings
             cmd = [
                 "ffmpeg",
                 "-i",
@@ -219,7 +216,6 @@ def compress_video(video_path, max_size_kb=900):
                 f"{min(target_bitrate * 2, 2000)}k",
             ]
 
-            # Add audio settings only if audio stream exists
             if has_audio:
                 cmd.extend(
                     [
@@ -230,15 +226,14 @@ def compress_video(video_path, max_size_kb=900):
                         "-strict",
                         "experimental",
                         "-map",
-                        "0:v",
+                        "0:v:0",
                         "-map",
-                        "0:a",
+                        "0:a:0",
                     ]
                 )
             else:
-                cmd.extend(["-an"])  # Explicitly specify no audio
+                cmd.extend(["-an"])  # Explicitly specify no audio if not available
 
-            # Add output path
             cmd.extend(["-y", output_path])
 
             logging.info(f"Attempting compression with CRF {current_crf}")
@@ -500,14 +495,16 @@ def get_media_urls(post):
     try:
         # Handle Imgur links
         if "imgur.com" in post.url:
-            if not any(post.url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif"]):
+            if not any(
+                post.url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif"]
+            ):
                 img_id = post.url.split("/")[-1]
                 media_urls.append(f"https://i.imgur.com/{img_id}.png")
                 logging.info(f"Converted Imgur URL to direct image: {media_urls[-1]}")
             else:
                 media_urls.append(post.url)
                 logging.info(f"Added direct Imgur URL: {post.url}")
-            return media_urls
+            return media_urls  # Return directly after handling Imgur
 
         if hasattr(post, "is_gallery") and post.is_gallery:
             logging.info("Post is a gallery")
@@ -517,56 +514,45 @@ def get_media_urls(post):
                     if media_id in post.media_metadata:
                         if "p" in post.media_metadata[media_id]:
                             media_url = post.media_metadata[media_id]["p"][0]["u"]
-                            media_url = media_url.replace("preview", "i")  # Get full resolution
+                            media_url = media_url.replace(
+                                "preview", "i"
+                            )  # Full resolution
                             media_urls.append(media_url)
                             logging.info(f"Added gallery image: {media_url}")
                         else:
-                            logging.warning(f"No preview found for media_id: {media_id}")
+                            logging.warning(
+                                f"No preview found for media_id: {media_id}"
+                            )
                     else:
                         logging.warning(f"Media metadata not found for ID: {media_id}")
-
         elif hasattr(post, "url"):
             if "v.redd.it" in post.url and hasattr(post, "media"):
                 if post.media and "reddit_video" in post.media:
                     video_url = post.media["reddit_video"]["fallback_url"]
-                    base_url = video_url.rsplit("/", 1)[0]
-                    
-                    # Try multiple possible audio file patterns
-                    audio_patterns = [
-                        "/DASH_audio.mp4",
-                        "/audio",
-                        "/DASH_audio",
-                        "/DASH_128.mp4",
-                        "/DASH_96.mp4"
-                    ]
-                    
-                    # Use the first working audio URL
-                    audio_url = None
-                    for pattern in audio_patterns:
-                        test_url = base_url + pattern
-                        response = requests.head(test_url)
-                        if response.status_code == 200:
-                            audio_url = test_url
-                            break
-                    
-                    media_urls.append((video_url, audio_url))
+                    audio_url = post.media["reddit_video"].get(
+                        "audio_url"
+                    )  # Get audio URL
+
+                    media_urls.append((video_url, audio_url))  # Append both as a tuple
                     logging.info(f"Added video URL: {video_url}")
-                    logging.info(f"Added audio URL: {audio_url}")
+                    if audio_url:
+                        logging.info(f"Added audio URL: {audio_url}")
                 else:
                     logging.warning(f"Invalid video data for post: {post.id}")
-
-            elif any(post.url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")):
+            elif any(
+                post.url.lower().endswith(ext)
+                for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
+            ):
                 media_urls.append(post.url)
                 logging.info(f"Added direct media URL: {post.url}")
             else:
-                logging.info(f"Unsupported media type: {post.url}")
+                logging.info(f"Unsupported media type or no media found: {post.url}")
 
     except Exception as e:
         logging.error(f"Error processing media URLs for post {post.id}: {str(e)}")
 
     logging.info(f"Total media URLs found: {len(media_urls)}")
     return media_urls
-
 
 
 def merge_video_audio(video_path, audio_path, output_path):
@@ -606,23 +592,20 @@ def download_and_process_media(url, filename):
         video_url, audio_url = url
         video_path = f"temp_video_{filename}"
 
-        # Download video
         if download_media(video_url, video_path):
             video_size = (
                 os.path.getsize(video_path) if os.path.exists(video_path) else 0
             )
             logging.info(f"Video downloaded successfully. Size: {video_size} bytes")
 
-            # Try audio but continue if it fails
             audio_path = f"temp_audio_{filename}"
-            has_audio = download_media(audio_url, audio_path)
+            if audio_url:  # Check if audio_url is actually present
+                has_audio = download_media(audio_url, audio_path)
+            else:
+                has_audio = False
 
             if has_audio and os.path.exists(audio_path):
-                audio_size = os.path.getsize(audio_path)
-                logging.info(f"Audio downloaded successfully. Size: {audio_size} bytes")
-
                 success = merge_video_audio(video_path, audio_path, filename)
-                # Cleanup temp files
                 for path in [video_path, audio_path]:
                     if os.path.exists(path):
                         os.remove(path)
@@ -632,17 +615,18 @@ def download_and_process_media(url, filename):
                     logging.info(
                         f"Successfully merged video and audio. Final size: {final_size} bytes"
                     )
-                    return True
+                    if final_size > 0:
+                        compress_video(filename)  # Added compression call here
+                        return True
             else:
-                # Use video only when audio isn't available
-                logging.info("Processing video without audio")
+                logging.warning(f"No audio found or downloaded for {video_url}")
                 os.rename(video_path, filename)
-                if os.path.exists(filename):
-                    final_size = os.path.getsize(filename)
-                    logging.info(
-                        f"Successfully saved video only. Final size: {final_size} bytes"
-                    )
-                    return True
+                has_audio = False
+                compress_video(
+                    filename, has_audio=has_audio
+                )  # Pass explicit no audio flag to compressor if not downloaded.
+                return True
+
         else:
             logging.error("Video download failed")
             return False
@@ -654,28 +638,26 @@ def download_and_process_media(url, filename):
 def check_and_post():
     logging.info("Starting new check for posts")
     posted_ids = load_posted_ids()
-    subreddit = reddit.subreddit("formuladank")
-    # Increase time window to catch more posts
-    three_hours_ago = time.time() - (1.5 * 3600)
+    subreddit = reddit.subreddit("formuladank")  # Or your desired subreddit
+    three_hours_ago = time.time() - (1.5 * 3600)  # Look back 1.5 hours
 
     try:
-        for post in subreddit.new(limit=50):  # Increased limit to catch more posts
+        for post in subreddit.new(limit=50):
             if post.created_utc < three_hours_ago:
-                continue
+                continue  # Skip older posts
 
             if post.id not in posted_ids:
-                logging.info(
-                    f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}"
-                )
+                logging.info(f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}")
 
-                # Validate post has media content
+                # Check if post has supported media
                 if not hasattr(post, "url") or (
                     not any(
                         post.url.lower().endswith(ext)
                         for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
                     )
-                    and not hasattr(post, "is_gallery")
+                    and not hasattr(post, "is_gallery") #Check for gallery
                     and "v.redd.it" not in post.url
+                    and "imgur.com" not in post.url #Check for imgur
                 ):
                     logging.info(f"Skipping post {post.id} - No supported media found")
                     continue
@@ -686,54 +668,43 @@ def check_and_post():
                     logging.warning(f"No media URLs found for post {post.id}")
                     continue
 
-                logging.info(f"Found {len(media_urls)} media URLs for post {post.id}")
-
                 media_files = []
                 for i, url in enumerate(media_urls):
                     try:
                         clean_url = clean_filename(url)
                         filename = f"temp_{post.id}_{i}{os.path.splitext(clean_url)[1]}"
                         if download_and_process_media(url, filename):
-                            if (
-                                os.path.exists(filename)
-                                and os.path.getsize(filename) > 0
-                            ):
+                            if os.path.exists(filename) and os.path.getsize(filename) > 0:
                                 media_files.append(filename)
-                                logging.info(
-                                    f"Successfully processed media: {filename}"
-                                )
+                                logging.info(f"Successfully processed media: {filename}")
                             else:
-                                logging.error(f"Invalid media file: {filename}")
+                                logging.error(f"Invalid or empty media file: {filename}")
+                        else:
+                            logging.error(f"Failed to download and process media: {url}")
                     except Exception as e:
                         logging.error(f"Error processing media {url}: {str(e)}")
                         continue
 
                 if media_files:
                     try:
-                        if create_bluesky_thread(
-                            post.title, media_files, post.author.name
-                        ):
-                            logging.info(
-                                f"Successfully posted to Bluesky: {post.title}"
-                            )
+                        if create_bluesky_thread(post.title, media_files, post.author.name):
+                            logging.info(f"Successfully posted to Bluesky: {post.title}")
                             posted_ids.add(post.id)
                             save_posted_ids(posted_ids)
                         else:
-                            logging.error(
-                                f"Failed to create Bluesky thread for {post.id}"
-                            )
+                            logging.error(f"Failed to create Bluesky thread for {post.id}")
                     except Exception as e:
                         logging.error(f"Error creating Bluesky thread: {str(e)}")
                     finally:
-                        # Clean up media files
+                        # Clean up downloaded media files
                         for filename in media_files:
                             if os.path.exists(filename):
                                 os.remove(filename)
                 else:
-                    logging.error(f"No valid media files processed for post {post.id}")
-    except Exception as e:
-        logging.error(f"Error in check_and_post: {str(e)}")
+                     logging.error(f"No valid media files found for post {post.id}")
 
+    except Exception as e:
+        logging.error(f"Error during check_and_post: {str(e)}")
 
 def main():
     check_and_post()
