@@ -534,24 +534,36 @@ def get_media_urls(post):
                     # Try multiple possible audio file patterns
                     audio_patterns = [
                         "/DASH_audio.mp4",
+                        "/DASH_AUDIO_128.mp4",
+                        "/DASH_audio_128.mp4",
                         "/audio",
                         "/DASH_audio",
                         "/DASH_128.mp4",
-                        "/DASH_96.mp4"
+                        "/DASH_96.mp4",
+                        "/DASH_64.mp4"
                     ]
                     
                     # Use the first working audio URL
                     audio_url = None
                     for pattern in audio_patterns:
-                        test_url = base_url + pattern
-                        response = requests.head(test_url)
-                        if response.status_code == 200:
-                            audio_url = test_url
-                            break
+                        try:
+                            test_url = base_url + pattern
+                            response = requests.head(test_url, timeout=5)
+                            if response.status_code == 200:
+                                audio_url = test_url
+                                logging.info(f"Found working audio URL: {audio_url}")
+                                break
+                        except requests.RequestException as e:
+                            logging.debug(f"Failed to check audio pattern {pattern}: {str(e)}")
+                            continue
+                    
+                    if audio_url:
+                        logging.info(f"Found audio URL: {audio_url}")
+                    else:
+                        logging.warning("No audio URL found for video")
                     
                     media_urls.append((video_url, audio_url))
                     logging.info(f"Added video URL: {video_url}")
-                    logging.info(f"Added audio URL: {audio_url}")
                 else:
                     logging.warning(f"Invalid video data for post: {post.id}")
 
