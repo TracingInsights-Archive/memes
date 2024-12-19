@@ -48,8 +48,16 @@ jobs:
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git stash
-        git pull origin main
-        git stash pop || true
+        # Fetch latest changes
+        git fetch origin main
+        # Reset to match remote main exactly
+        git reset --hard origin/main
+        # Read current posted_ids.json
+        CURRENT_IDS=$(cat posted_ids.json)
+        # Run script again to get new IDs
+        python hello.py
+        # Merge the IDs
+        echo "$CURRENT_IDS" | jq -s '.[0] + .[1] | unique' - posted_ids.json > temp.json && mv temp.json posted_ids.json
+        # Commit and push if there are changes
         git add posted_ids.json
         git diff --staged --quiet || (git commit -m "Update posted_ids.json" && git push origin main)
