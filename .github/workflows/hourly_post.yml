@@ -2,7 +2,7 @@ name: Hourly F1 Meme Poster
 
 on:
   schedule:
-    - cron: '0/15 * * * *'  # Run every hour
+    - cron: '0/15 * * * *'  
   workflow_dispatch:      # Allow manual triggers
 
 jobs:
@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    
+    # Add timeout for the entire job
+    timeout-minutes: 30
 
     steps:
     - uses: actions/checkout@v3
@@ -34,6 +37,7 @@ jobs:
     - name: Create empty posted_ids.json if not exists
       run: |
         [ -f posted_ids.json ] || echo "[]" > posted_ids.json
+      continue-on-error: true
 
     - name: Run script
       env:
@@ -43,21 +47,17 @@ jobs:
         BLUESKY_EMAIL: ${{ secrets.BLUESKY_EMAIL }}
         BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
       run: python hello.py
+      timeout-minutes: 10
+      
 
     - name: Sync and commit changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        # Fetch latest changes
         git fetch origin main
-        # Reset to match remote main exactly
-        git reset --hard origin/main
-        # Read current posted_ids.json
-        CURRENT_IDS=$(cat posted_ids.json)
-        # Run script again to get new IDs
-        python hello.py
-        # Merge the IDs
-        echo "$CURRENT_IDS" | jq -s '.[0] + .[1] | unique' - posted_ids.json > temp.json && mv temp.json posted_ids.json
-        # Commit and push if there are changes
+        git stash -u
+        git pull origin main --rebase
+        git stash pop || true
         git add posted_ids.json
-        git diff --staged --quiet || (git commit -m "Update posted_ids.json" && git push origin main)
+        git diff --staged --quiet || (git commit -m "Update posted_ids.json [skip ci]" && git push origin main)
+      timeout-minutes: 5
