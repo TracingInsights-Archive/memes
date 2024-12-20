@@ -314,7 +314,8 @@ def create_bluesky_thread(title, media_paths, author):
     logging.info(f"Media paths: {media_paths}")
 
     try:
-        parent_post = None
+        root_uri = None
+        parent_uri = None
         quoted_text = f'"{title}"\n\n- u/{author}'
         text_chunks = split_into_thread(quoted_text)
         formatted_text = f"{text_chunks[0]}\n\n#f1 #formula1 #memes #{RACE_HASHTAG}"
@@ -367,20 +368,24 @@ def create_bluesky_thread(title, media_paths, author):
                 )
 
                 try:
+                    reply_ref = None
+                    if root_uri and parent_uri:
+                        reply_ref = {
+                            "root": {"uri": root_uri, "cid": root_uri.split('/')[-1]},
+                            "parent": {"uri": parent_uri, "cid": parent_uri.split('/')[-1]}
+                        }
+
                     post_result = bluesky.post(
                         text=post_text,
                         facets=facets if i == 0 else None,
                         embed=images,
-                        reply_to=parent_post,
+                        reply_ref=reply_ref
                     )
 
                     if post_result:
-                        parent_post = {
-                            "root": (
-                                parent_post["root"] if parent_post else post_result.uri
-                            ),
-                            "parent": post_result.uri,
-                        }
+                        if not root_uri:
+                            root_uri = post_result.uri
+                        parent_uri = post_result.uri
                         logging.info(f"Successfully posted image chunk {i//4 + 1}")
                     else:
                         logging.error("Failed to create post with images")
@@ -403,22 +408,28 @@ def create_bluesky_thread(title, media_paths, author):
                 video_data = f.read()
 
             post_text = (
-                formatted_text if not parent_post else f"{text_chunks[0]} (Video)"
+                formatted_text if not root_uri else f"{text_chunks[0]} (Video)"
             )
+
+            reply_ref = None
+            if root_uri and parent_uri:
+                reply_ref = {
+                    "root": {"uri": root_uri, "cid": root_uri.split('/')[-1]},
+                    "parent": {"uri": parent_uri, "cid": parent_uri.split('/')[-1]}
+                }
 
             post_result = bluesky.send_video(
                 text=post_text,
                 video=video_data,
                 video_alt=text_chunks[0],
-                reply_to=parent_post,
-                facets=facets if not parent_post else None,
+                reply_ref=reply_ref,
+                facets=facets if not root_uri else None,
             )
 
             if post_result:
-                parent_post = {
-                    "root": parent_post["root"] if parent_post else post_result.uri,
-                    "parent": post_result.uri,
-                }
+                if not root_uri:
+                    root_uri = post_result.uri
+                parent_uri = post_result.uri
 
         return True
 
