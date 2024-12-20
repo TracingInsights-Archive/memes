@@ -423,7 +423,6 @@ def create_bluesky_thread(title, media_paths, author):
                 text=post_text,
                 video=video_data,
                 video_alt=text_chunks[0],
-                reply_ref=reply_ref,
                 facets=facets if not root_uri else None,
             )
 
