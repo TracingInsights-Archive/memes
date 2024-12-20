@@ -371,15 +371,18 @@ def create_bluesky_thread(title, media_paths, author):
                     reply_ref = None
                     if root_uri and parent_uri:
                         reply_ref = {
-                            "root": {"uri": root_uri, "cid": root_uri.split('/')[-1]},
-                            "parent": {"uri": parent_uri, "cid": parent_uri.split('/')[-1]}
+                            "root": {"uri": root_uri, "cid": root_uri.split("/")[-1]},
+                            "parent": {
+                                "uri": parent_uri,
+                                "cid": parent_uri.split("/")[-1],
+                            },
                         }
 
-                    post_result = bluesky.post(
+                    post_result = bluesky.send_post(
                         text=post_text,
                         facets=facets if i == 0 else None,
                         embed=images,
-                        reply_ref=reply_ref
+                        reply_to=reply_ref if root_uri and parent_uri else None,
                     )
 
                     if post_result:
@@ -407,15 +410,13 @@ def create_bluesky_thread(title, media_paths, author):
             with open(video_path, "rb") as f:
                 video_data = f.read()
 
-            post_text = (
-                formatted_text if not root_uri else f"{text_chunks[0]} (Video)"
-            )
+            post_text = formatted_text if not root_uri else f"{text_chunks[0]} (Video)"
 
             reply_ref = None
             if root_uri and parent_uri:
                 reply_ref = {
-                    "root": {"uri": root_uri, "cid": root_uri.split('/')[-1]},
-                    "parent": {"uri": parent_uri, "cid": parent_uri.split('/')[-1]}
+                    "root": {"uri": root_uri, "cid": root_uri.split("/")[-1]},
+                    "parent": {"uri": parent_uri, "cid": parent_uri.split("/")[-1]},
                 }
 
             post_result = bluesky.send_video(
@@ -511,7 +512,9 @@ def get_media_urls(post):
     try:
         # Handle Imgur links
         if "imgur.com" in post.url:
-            if not any(post.url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif"]):
+            if not any(
+                post.url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif"]
+            ):
                 img_id = post.url.split("/")[-1]
                 media_urls.append(f"https://i.imgur.com/{img_id}.png")
                 logging.info(f"Converted Imgur URL to direct image: {media_urls[-1]}")
@@ -528,11 +531,15 @@ def get_media_urls(post):
                     if media_id in post.media_metadata:
                         if "p" in post.media_metadata[media_id]:
                             media_url = post.media_metadata[media_id]["p"][0]["u"]
-                            media_url = media_url.replace("preview", "i")  # Get full resolution
+                            media_url = media_url.replace(
+                                "preview", "i"
+                            )  # Get full resolution
                             media_urls.append(media_url)
                             logging.info(f"Added gallery image: {media_url}")
                         else:
-                            logging.warning(f"No preview found for media_id: {media_id}")
+                            logging.warning(
+                                f"No preview found for media_id: {media_id}"
+                            )
                     else:
                         logging.warning(f"Media metadata not found for ID: {media_id}")
 
@@ -541,7 +548,7 @@ def get_media_urls(post):
                 if post.media and "reddit_video" in post.media:
                     video_url = post.media["reddit_video"]["fallback_url"]
                     base_url = video_url.rsplit("/", 1)[0]
-                    
+
                     # Try multiple possible audio file patterns
                     audio_patterns = [
                         "/DASH_audio.mp4",
@@ -551,9 +558,9 @@ def get_media_urls(post):
                         "/DASH_audio",
                         "/DASH_128.mp4",
                         "/DASH_96.mp4",
-                        "/DASH_64.mp4"
+                        "/DASH_64.mp4",
                     ]
-                    
+
                     # Use the first working audio URL
                     audio_url = None
                     for pattern in audio_patterns:
@@ -565,20 +572,25 @@ def get_media_urls(post):
                                 logging.info(f"Found working audio URL: {audio_url}")
                                 break
                         except requests.RequestException as e:
-                            logging.debug(f"Failed to check audio pattern {pattern}: {str(e)}")
+                            logging.debug(
+                                f"Failed to check audio pattern {pattern}: {str(e)}"
+                            )
                             continue
-                    
+
                     if audio_url:
                         logging.info(f"Found audio URL: {audio_url}")
                     else:
                         logging.warning("No audio URL found for video")
-                    
+
                     media_urls.append((video_url, audio_url))
                     logging.info(f"Added video URL: {video_url}")
                 else:
                     logging.warning(f"Invalid video data for post: {post.id}")
 
-            elif any(post.url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")):
+            elif any(
+                post.url.lower().endswith(ext)
+                for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
+            ):
                 media_urls.append(post.url)
                 logging.info(f"Added direct media URL: {post.url}")
             else:
@@ -589,7 +601,6 @@ def get_media_urls(post):
 
     logging.info(f"Total media URLs found: {len(media_urls)}")
     return media_urls
-
 
 
 def merge_video_audio(video_path, audio_path, output_path):
