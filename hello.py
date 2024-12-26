@@ -37,7 +37,27 @@ reddit = praw.Reddit(
 
 # Initialize Bluesky client
 bluesky = Client()
-bluesky.login(BLUESKY_EMAIL, BLUESKY_PASSWORD)
+
+
+def login_with_retry(max_attempts=3):
+    for attempt in range(max_attempts):
+        try:
+            bluesky.login(BLUESKY_EMAIL, BLUESKY_PASSWORD)
+            logging.info("Successfully logged in to Bluesky")
+            return True
+        except Exception as e:
+            wait_time = 2**attempt  # Exponential backoff: 1, 2, 4 seconds
+            logging.info(
+                f"Login attempt {attempt + 1} failed, waiting {wait_time} seconds"
+            )
+            time.sleep(wait_time)
+
+    logging.error("Failed to login after maximum attempts")
+    return False
+
+
+if not login_with_retry():
+    sys.exit(1)
 
 
 def check_video_audio(video_path):
