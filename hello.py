@@ -459,9 +459,16 @@ def create_bluesky_thread(title, media_paths, author):
 
 
 def load_posted_ids():
-    if os.path.exists("posted_ids.json"):
-        with open("posted_ids.json", "r") as f:
-            return set(json.load(f))
+    try:
+        if os.path.exists("posted_ids.json") and os.path.getsize("posted_ids.json") > 0:
+            with open("posted_ids.json", "r") as f:
+                return set(json.load(f))
+    except (json.JSONDecodeError, IOError) as e:
+        logging.warning(f"Error loading posted_ids.json: {e}, creating new file")
+
+    # Return empty set and create new file if anything fails
+    with open("posted_ids.json", "w") as f:
+        json.dump([], f)
     return set()
 
 
@@ -709,7 +716,7 @@ def check_and_post():
     posted_ids = load_posted_ids()
     subreddit = reddit.subreddit("formuladank")
     # Increase time window to catch more posts
-    three_hours_ago = time.time() - (1.5 * 3600)
+    three_hours_ago = time.time() - (8 * 3600)
 
     try:
         for post in subreddit.new(limit=50):  # Increased limit to catch more posts
