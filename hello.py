@@ -716,7 +716,7 @@ def check_and_post():
     posted_ids = load_posted_ids()
     subreddit = reddit.subreddit("formuladank")
     # Increase time window to catch more posts
-    three_hours_ago = time.time() - (8 * 3600)
+    three_hours_ago = time.time() - (1.5 * 3600)
 
     try:
         for post in subreddit.new(limit=50):  # Increased limit to catch more posts
