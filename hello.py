@@ -347,8 +347,8 @@ def create_bluesky_thread(title, media_paths, author):
             if p.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
         ]
         video_paths = [p for p in media_paths if p.lower().endswith((".mp4", ".gif"))]
-
         if image_paths:
+            total_chunks = (len(image_paths) + 3) // 4
             for i in range(0, len(image_paths), 4):
                 chunk = image_paths[i : i + 4]
                 images = {"$type": "app.bsky.embed.images", "images": []}
@@ -356,7 +356,7 @@ def create_bluesky_thread(title, media_paths, author):
                 for media_path in chunk:
                     if not verify_file_size(media_path):
                         if not compress_image(media_path):
-                            logging.error(f"Failed to compress image: {media_path}")
+                            logging.error("Failed to compress image: %s", media_path)
                             continue
 
                     with open(media_path, "rb") as f:
@@ -368,11 +368,11 @@ def create_bluesky_thread(title, media_paths, author):
                             images["images"].append(
                                 {"image": response.blob, "alt": text_chunks[0][:300]}
                             )
-                            logging.info(f"Successfully uploaded image: {media_path}")
+                            logging.info("Successfully uploaded image: %s", media_path)
                         else:
-                            logging.error(f"Failed to upload image: {media_path}")
+                            logging.error("Failed to upload image: %s", media_path)
                     except Exception as e:
-                        logging.error(f"Error uploading image {media_path}: {str(e)}")
+                        logging.error("Error uploading image %s: %s", media_path, e)
                         continue
 
                 if not images["images"]:
@@ -381,10 +381,11 @@ def create_bluesky_thread(title, media_paths, author):
                     )
                     continue
 
+                # Post text with f-strings
                 post_text = (
                     formatted_text
                     if i == 0
-                    else f"Continued... ({i//4 + 1}/{(len(image_paths) + 3)//4})"
+                    else f"Continued... ({(i//4) + 1}/{total_chunks})"
                 )
 
                 try:
@@ -409,50 +410,16 @@ def create_bluesky_thread(title, media_paths, author):
                         if not root_uri:
                             root_uri = post_result.uri
                         parent_uri = post_result.uri
-                        logging.info(f"Successfully posted image chunk {i//4 + 1}")
+                        logging.info(
+                            "Successfully posted image chunk %d of %d",
+                            i // 4 + 1,
+                            total_chunks,
+                        )
                     else:
                         logging.error("Failed to create post with images")
                 except Exception as e:
-                    logging.error(f"Error creating post: {str(e)}")
+                    logging.error("Error creating post: %s", e)
                     continue
-
-        for video_path in video_paths:
-            if video_path.endswith(".gif"):
-                mp4_path = convert_gif_to_mp4(video_path)
-                if mp4_path:
-                    video_path = mp4_path
-
-            check_video_audio(video_path)
-            if not verify_file_size(video_path):
-                if not compress_video(video_path):
-                    continue
-
-            with open(video_path, "rb") as f:
-                video_data = f.read()
-
-            post_text = formatted_text if not root_uri else f"{text_chunks[0]} (Video)"
-
-            reply_ref = None
-            if root_uri and parent_uri:
-                reply_ref = {
-                    "root": {"uri": root_uri, "cid": root_uri.split("/")[-1]},
-                    "parent": {"uri": parent_uri, "cid": parent_uri.split("/")[-1]},
-                }
-
-            post_result = bluesky.send_video(
-                text=post_text,
-                video=video_data,
-                video_alt=text_chunks[0],
-                facets=facets if not root_uri else None,
-            )
-
-            if post_result:
-                if not root_uri:
-                    root_uri = post_result.uri
-                parent_uri = post_result.uri
-
-        return True
-
     except Exception as e:
         logging.error(f"Error creating Bluesky thread: {e}")
         return False
