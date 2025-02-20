@@ -443,8 +443,14 @@ def load_posted_ids():
 
 
 def save_posted_ids(posted_ids):
-    with open("posted_ids.json", "w") as f:
-        json.dump(list(posted_ids), f)
+    try:
+        # Create atomic write using temporary file
+        temp_file = "posted_ids.json.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(list(posted_ids), f, indent=2)
+        os.replace(temp_file, "posted_ids.json")
+    except Exception as e:
+        logging.error(f"Error saving posted_ids.json: {e}")
 
 
 def download_media(url, filename):
@@ -686,7 +692,7 @@ def check_and_post():
     posted_ids = load_posted_ids()
     subreddit = reddit.subreddit("formuladank")
     # Increase time window to catch more posts
-    three_hours_ago = time.time() - (1.5 * 3600)
+    three_hours_ago = time.time() - (0.3 * 3600)
 
     try:
         for post in subreddit.new(limit=50):  # Increased limit to catch more posts
