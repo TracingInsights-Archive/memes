@@ -429,11 +429,14 @@ def load_posted_ids():
     try:
         if os.path.exists("posted_ids.json") and os.path.getsize("posted_ids.json") > 0:
             with open("posted_ids.json", "r") as f:
-                return set(json.load(f))
+                posted_ids = set(json.load(f))
+                # Keep only last 1000 posts to prevent file from growing too large
+                if len(posted_ids) > 1000:
+                    posted_ids = set(list(posted_ids)[-1000:])
+                return posted_ids
     except (json.JSONDecodeError, IOError) as e:
         logging.warning(f"Error loading posted_ids.json: {e}, creating new file")
 
-    # Return empty set and create new file if anything fails
     with open("posted_ids.json", "w") as f:
         json.dump([], f)
     return set()
