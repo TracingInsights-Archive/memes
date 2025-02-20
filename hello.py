@@ -745,29 +745,29 @@ def check_and_post():
                         continue
 
                 if media_files:
+                    # Mark the post as processed immediately to avoid duplicate posting.
+                    posted_ids.add(post.id)
+                    save_posted_ids(posted_ids)
                     try:
                         if create_bluesky_thread(
                             post.title, media_files, post.author.name
                         ):
                             logging.info(
-                                f"Successfully posted to Bluesky: {post.title}"
+                                "Successfully posted to Bluesky: %s", post.title
                             )
-                            posted_ids.add(post.id)
-                            save_posted_ids(posted_ids)
                         else:
                             logging.error(
-                                f"Failed to create Bluesky thread for {post.id}"
+                                "Failed to create Bluesky thread for %s", post.id
                             )
                     except Exception as e:
-                        logging.error(f"Error creating Bluesky thread: {str(e)}")
+                        logging.error("Error creating Bluesky thread: %s", str(e))
                     finally:
                         # Clean up media files
                         for filename in media_files:
                             if os.path.exists(filename):
                                 os.remove(filename)
                 else:
-                    logging.error(f"No valid media files processed for post {post.id}")
-    except Exception as e:
+                    logging.error("No valid media files processed for post %s", post.id)    except Exception as e:
         logging.error(f"Error in check_and_post: {str(e)}")
 
 
