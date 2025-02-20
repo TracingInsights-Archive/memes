@@ -347,8 +347,8 @@ def create_bluesky_thread(title, media_paths, author):
             if p.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
         ]
         video_paths = [p for p in media_paths if p.lower().endswith((".mp4", ".gif"))]
+
         if image_paths:
-            total_chunks = (len(image_paths) + 3) // 4
             for i in range(0, len(image_paths), 4):
                 chunk = image_paths[i : i + 4]
                 images = {"$type": "app.bsky.embed.images", "images": []}
@@ -356,7 +356,7 @@ def create_bluesky_thread(title, media_paths, author):
                 for media_path in chunk:
                     if not verify_file_size(media_path):
                         if not compress_image(media_path):
-                            logging.error("Failed to compress image: %s", media_path)
+                            logging.error(f"Failed to compress image: {media_path}")
                             continue
 
                     with open(media_path, "rb") as f:
@@ -368,11 +368,11 @@ def create_bluesky_thread(title, media_paths, author):
                             images["images"].append(
                                 {"image": response.blob, "alt": text_chunks[0][:300]}
                             )
-                            logging.info("Successfully uploaded image: %s", media_path)
+                            logging.info(f"Successfully uploaded image: {media_path}")
                         else:
-                            logging.error("Failed to upload image: %s", media_path)
+                            logging.error(f"Failed to upload image: {media_path}")
                     except Exception as e:
-                        logging.error("Error uploading image %s: %s", media_path, e)
+                        logging.error(f"Error uploading image {media_path}: {str(e)}")
                         continue
 
                 if not images["images"]:
@@ -381,11 +381,10 @@ def create_bluesky_thread(title, media_paths, author):
                     )
                     continue
 
-                # Post text with f-strings
                 post_text = (
                     formatted_text
                     if i == 0
-                    else f"Continued... ({(i//4) + 1}/{total_chunks})"
+                    else f"Continued... ({i//4 + 1}/{(len(image_paths) + 3)//4})"
                 )
 
                 try:
@@ -410,59 +409,65 @@ def create_bluesky_thread(title, media_paths, author):
                         if not root_uri:
                             root_uri = post_result.uri
                         parent_uri = post_result.uri
-                        logging.info(
-                            "Successfully posted image chunk %d of %d",
-                            i // 4 + 1,
-                            total_chunks,
-                        )
+                        logging.info(f"Successfully posted image chunk {i//4 + 1}")
                     else:
                         logging.error("Failed to create post with images")
                 except Exception as e:
-                    logging.error("Error creating post: %s", e)
+                    logging.error(f"Error creating post: {str(e)}")
                     continue
+
+        for video_path in video_paths:
+            if video_path.endswith(".gif"):
+                mp4_path = convert_gif_to_mp4(video_path)
+                if mp4_path:
+                    video_path = mp4_path
+
+            check_video_audio(video_path)
+            if not verify_file_size(video_path):
+                if not compress_video(video_path):
+                    continue
+
+            with open(video_path, "rb") as f:
+                video_data = f.read()
+
+            post_text = formatted_text if not root_uri else f"{text_chunks[0]} (Video)"
+
+            reply_ref = None
+            if root_uri and parent_uri:
+                reply_ref = {
+                    "root": {"uri": root_uri, "cid": root_uri.split("/")[-1]},
+                    "parent": {"uri": parent_uri, "cid": parent_uri.split("/")[-1]},
+                }
+
+            post_result = bluesky.send_video(
+                text=post_text,
+                video=video_data,
+                video_alt=text_chunks[0],
+                facets=facets if not root_uri else None,
+            )
+
+            if post_result:
+                if not root_uri:
+                    root_uri = post_result.uri
+                parent_uri = post_result.uri
+
+        return True
+
     except Exception as e:
         logging.error(f"Error creating Bluesky thread: {e}")
         return False
 
 
 def load_posted_ids():
-    try:
-        if os.path.exists("posted_ids.json"):
-            with open("posted_ids.json", "r") as f:
-                # Load as list to maintain order
-                return list(json.load(f))
-        else:
-            # Initialize with empty list
-            save_posted_ids([])
-            return []
-    except Exception as e:
-        logging.error("Error loading posted_ids.json: %s", e)
-        return []
+    if os.path.exists("posted_ids.json"):
+        with open("posted_ids.json", "r") as f:
+            return set(json.load(f))
+    return set()
 
 
 def save_posted_ids(posted_ids):
-    try:
-        temp_file = f"posted_ids.json.{int(time.time())}.tmp"
-
-        # Keep most recent 1000 posts
-        posted_ids = posted_ids[:1000]
-
-        with open(temp_file, "w") as f:
-            json.dump(posted_ids, f, indent=2)
-
-        if os.path.exists("posted_ids.json"):
-            backup_file = f"posted_ids.json.{int(time.time())}.bak"
-            os.rename("posted_ids.json", backup_file)
-
-        os.rename(temp_file, "posted_ids.json")
-
-        if "backup_file" in locals() and os.path.exists(backup_file):
-            os.remove(backup_file)
-
-    except Exception as e:
-        logging.error("Error saving posted_ids.json: %s", e)
-        if "backup_file" in locals() and os.path.exists(backup_file):
-            os.rename(backup_file, "posted_ids.json")
+    with open("posted_ids.json", "w") as f:
+        json.dump(list(posted_ids), f)
 
 
 def download_media(url, filename):
@@ -701,69 +706,86 @@ def download_and_process_media(url, filename):
 
 def check_and_post():
     logging.info("Starting new check for posts")
-    existing_posts = load_posted_ids()
-    existing_posts_set = set(existing_posts)  # For efficient lookup
-    new_posts = []
+    posted_ids = load_posted_ids()
     subreddit = reddit.subreddit("formuladank")
+    # Increase time window to catch more posts
+    three_hours_ago = time.time() - (1.5 * 3600)
 
     try:
-        for post in subreddit.new(limit=100):
-            if post.id in existing_posts_set:
+        for post in subreddit.new(limit=50):  # Increased limit to catch more posts
+            if post.created_utc < three_hours_ago:
                 continue
 
-            logging.info(
-                f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}"
-            )
-
-            if hasattr(post, "url") and (
-                any(
-                    post.url.lower().endswith(ext)
-                    for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
+            if post.id not in posted_ids:
+                logging.info(
+                    f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}"
                 )
-                or hasattr(post, "is_gallery")
-                or "v.redd.it" in post.url
-            ):
+
+                # Validate post has media content
+                if not hasattr(post, "url") or (
+                    not any(
+                        post.url.lower().endswith(ext)
+                        for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
+                    )
+                    and not hasattr(post, "is_gallery")
+                    and "v.redd.it" not in post.url
+                ):
+                    logging.info(f"Skipping post {post.id} - No supported media found")
+                    continue
+
                 media_urls = get_media_urls(post)
-                if media_urls:
-                    media_files = []
-                    for i, url in enumerate(media_urls):
-                        try:
-                            clean_url = clean_filename(url)
-                            filename = (
-                                f"temp_{post.id}_{i}{os.path.splitext(clean_url)[1]}"
-                            )
-                            if download_and_process_media(url, filename):
-                                media_files.append(filename)
-                        except Exception as e:
-                            logging.error(f"Error processing media {url}: {str(e)}")
 
-                    if media_files:
-                        try:
-                            if create_bluesky_thread(
-                                post.title, media_files, post.author.name
+                if not media_urls:
+                    logging.warning(f"No media URLs found for post {post.id}")
+                    continue
+
+                logging.info(f"Found {len(media_urls)} media URLs for post {post.id}")
+
+                media_files = []
+                for i, url in enumerate(media_urls):
+                    try:
+                        clean_url = clean_filename(url)
+                        filename = f"temp_{post.id}_{i}{os.path.splitext(clean_url)[1]}"
+                        if download_and_process_media(url, filename):
+                            if (
+                                os.path.exists(filename)
+                                and os.path.getsize(filename) > 0
                             ):
-                                new_posts.append(post.id)
-                                # Save incrementally
-                                save_posted_ids(new_posts + existing_posts)
+                                media_files.append(filename)
                                 logging.info(
-                                    f"Successfully posted to Bluesky: {post.title}"
+                                    f"Successfully processed media: {filename}"
                                 )
-                        finally:
-                            # Clean up media files
-                            for filename in media_files:
-                                if os.path.exists(filename):
-                                    os.remove(filename)
+                            else:
+                                logging.error(f"Invalid media file: {filename}")
+                    except Exception as e:
+                        logging.error(f"Error processing media {url}: {str(e)}")
+                        continue
 
-        # Final save with all new posts prepended
-        if new_posts:
-            save_posted_ids(new_posts + existing_posts)
-            logging.info(f"Added {len(new_posts)} new posts to tracking")
-
+                if media_files:
+                    try:
+                        if create_bluesky_thread(
+                            post.title, media_files, post.author.name
+                        ):
+                            logging.info(
+                                f"Successfully posted to Bluesky: {post.title}"
+                            )
+                            posted_ids.add(post.id)
+                            save_posted_ids(posted_ids)
+                        else:
+                            logging.error(
+                                f"Failed to create Bluesky thread for {post.id}"
+                            )
+                    except Exception as e:
+                        logging.error(f"Error creating Bluesky thread: {str(e)}")
+                    finally:
+                        # Clean up media files
+                        for filename in media_files:
+                            if os.path.exists(filename):
+                                os.remove(filename)
+                else:
+                    logging.error(f"No valid media files processed for post {post.id}")
     except Exception as e:
-        logging.error(f"Error in check_and_post: {e}")
-        # Emergency save of processed posts
-        if new_posts:
-            save_posted_ids(new_posts + existing_posts)
+        logging.error(f"Error in check_and_post: {str(e)}")
 
 
 def main():
