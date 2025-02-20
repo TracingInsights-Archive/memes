@@ -768,7 +768,7 @@ def check_and_post():
                                 os.remove(filename)
                 else:
                     logging.error("No valid media files processed for post %s", post.id)    
-                        except Exception as e:
+                    except Exception as e:
                         logging.error(f"Error in check_and_post: {str(e)}")
 
 
