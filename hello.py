@@ -429,43 +429,40 @@ def load_posted_ids():
     try:
         if os.path.exists("posted_ids.json"):
             with open("posted_ids.json", "r") as f:
-                posted_ids = set(json.load(f))
-                # Keep only last 1000 posts to prevent file from growing too large
-                if len(posted_ids) > 1000:
-                    posted_ids = set(list(posted_ids)[-1000:])
-                return posted_ids
+                # Load as list to maintain order
+                return list(json.load(f))
         else:
-            # Initialize with empty set if file doesn't exist
-            save_posted_ids(set())
-            return set()
+            # Initialize with empty list
+            save_posted_ids([])
+            return []
     except Exception as e:
-        logging.error(f"Error loading posted_ids.json: {e}")
-        return set()
+        logging.error("Error loading posted_ids.json: %s", e)
+        return []
 
 
 def save_posted_ids(posted_ids):
     try:
-        # Create backup of existing file
-        if os.path.exists("posted_ids.json"):
-            os.replace("posted_ids.json", "posted_ids.json.bak")
+        temp_file = f"posted_ids.json.{int(time.time())}.tmp"
 
-        # Write new data atomically
-        temp_file = "posted_ids.json.tmp"
+        # Keep most recent 1000 posts
+        posted_ids = posted_ids[:1000]
+
         with open(temp_file, "w") as f:
-            json.dump(list(posted_ids), f, indent=2)
+            json.dump(posted_ids, f, indent=2)
 
-        # Atomic replace
-        os.replace(temp_file, "posted_ids.json")
+        if os.path.exists("posted_ids.json"):
+            backup_file = f"posted_ids.json.{int(time.time())}.bak"
+            os.rename("posted_ids.json", backup_file)
 
-        # Remove backup if everything succeeded
-        if os.path.exists("posted_ids.json.bak"):
-            os.remove("posted_ids.json.bak")
+        os.rename(temp_file, "posted_ids.json")
+
+        if "backup_file" in locals() and os.path.exists(backup_file):
+            os.remove(backup_file)
 
     except Exception as e:
-        # Restore from backup if something went wrong
-        if os.path.exists("posted_ids.json.bak"):
-            os.replace("posted_ids.json.bak", "posted_ids.json")
-        logging.error(f"Error saving posted_ids.json: {e}")
+        logging.error("Error saving posted_ids.json: %s", e)
+        if "backup_file" in locals() and os.path.exists(backup_file):
+            os.rename(backup_file, "posted_ids.json")
 
 
 def download_media(url, filename):
@@ -704,88 +701,69 @@ def download_and_process_media(url, filename):
 
 def check_and_post():
     logging.info("Starting new check for posts")
-    posted_ids = load_posted_ids()
+    existing_posts = load_posted_ids()
+    existing_posts_set = set(existing_posts)  # For efficient lookup
+    new_posts = []
     subreddit = reddit.subreddit("formuladank")
-    # Increase time window to catch more posts
-    three_hours_ago = time.time() - (1.5 * 3600)
 
     try:
-        for post in subreddit.new(limit=50):  # Increased limit to catch more posts
-            if post.created_utc < three_hours_ago:
+        for post in subreddit.new(limit=100):
+            if post.id in existing_posts_set:
                 continue
 
-            if post.id not in posted_ids:
-                logging.info(
-                    f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}"
+            logging.info(
+                f"Processing post: {post.title} | ID: {post.id} | URL: {post.url}"
+            )
+
+            if hasattr(post, "url") and (
+                any(
+                    post.url.lower().endswith(ext)
+                    for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
                 )
-
-                # Validate post has media content
-                if not hasattr(post, "url") or (
-                    not any(
-                        post.url.lower().endswith(ext)
-                        for ext in (".jpg", ".jpeg", ".png", ".gif", ".mp4", ".webp")
-                    )
-                    and not hasattr(post, "is_gallery")
-                    and "v.redd.it" not in post.url
-                ):
-                    logging.info(f"Skipping post {post.id} - No supported media found")
-                    continue
-
+                or hasattr(post, "is_gallery")
+                or "v.redd.it" in post.url
+            ):
                 media_urls = get_media_urls(post)
-
-                if not media_urls:
-                    logging.warning(f"No media URLs found for post {post.id}")
-                    continue
-
-                logging.info(f"Found {len(media_urls)} media URLs for post {post.id}")
-
-                media_files = []
-                for i, url in enumerate(media_urls):
-                    try:
-                        clean_url = clean_filename(url)
-                        filename = f"temp_{post.id}_{i}{os.path.splitext(clean_url)[1]}"
-                        if download_and_process_media(url, filename):
-                            if (
-                                os.path.exists(filename)
-                                and os.path.getsize(filename) > 0
-                            ):
+                if media_urls:
+                    media_files = []
+                    for i, url in enumerate(media_urls):
+                        try:
+                            clean_url = clean_filename(url)
+                            filename = (
+                                f"temp_{post.id}_{i}{os.path.splitext(clean_url)[1]}"
+                            )
+                            if download_and_process_media(url, filename):
                                 media_files.append(filename)
-                                logging.info(
-                                    f"Successfully processed media: {filename}"
-                                )
-                            else:
-                                logging.error(f"Invalid media file: {filename}")
-                    except Exception as e:
-                        logging.error(f"Error processing media {url}: {str(e)}")
-                        continue
+                        except Exception as e:
+                            logging.error(f"Error processing media {url}: {str(e)}")
 
-                if media_files:
-                    # Mark the post as processed immediately to avoid duplicate posting.
-                    posted_ids.add(post.id)
-                    save_posted_ids(posted_ids)
-                    try:
-                        if create_bluesky_thread(
-                            post.title, media_files, post.author.name
-                        ):
-                            logging.info(
-                                "Successfully posted to Bluesky: %s", post.title
-                            )
-                        else:
-                            logging.error(
-                                "Failed to create Bluesky thread for %s", post.id
-                            )
-                    except Exception as e:
-                        logging.error("Error creating Bluesky thread: %s", str(e))
-                    finally:
-                        # Clean up media files
-                        for filename in media_files:
-                            if os.path.exists(filename):
-                                os.remove(filename)
-                else:
-                    logging.error("No valid media files processed for post %s", post.id)
+                    if media_files:
+                        try:
+                            if create_bluesky_thread(
+                                post.title, media_files, post.author.name
+                            ):
+                                new_posts.append(post.id)
+                                # Save incrementally
+                                save_posted_ids(new_posts + existing_posts)
+                                logging.info(
+                                    f"Successfully posted to Bluesky: {post.title}"
+                                )
+                        finally:
+                            # Clean up media files
+                            for filename in media_files:
+                                if os.path.exists(filename):
+                                    os.remove(filename)
+
+        # Final save with all new posts prepended
+        if new_posts:
+            save_posted_ids(new_posts + existing_posts)
+            logging.info(f"Added {len(new_posts)} new posts to tracking")
 
     except Exception as e:
-        logging.error(f"Error in check_and_post: {str(e)}")
+        logging.error(f"Error in check_and_post: {e}")
+        # Emergency save of processed posts
+        if new_posts:
+            save_posted_ids(new_posts + existing_posts)
 
 
 def main():
