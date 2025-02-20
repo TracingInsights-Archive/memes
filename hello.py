@@ -427,29 +427,44 @@ def create_bluesky_thread(title, media_paths, author):
 
 def load_posted_ids():
     try:
-        if os.path.exists("posted_ids.json") and os.path.getsize("posted_ids.json") > 0:
+        if os.path.exists("posted_ids.json"):
             with open("posted_ids.json", "r") as f:
                 posted_ids = set(json.load(f))
                 # Keep only last 1000 posts to prevent file from growing too large
                 if len(posted_ids) > 1000:
                     posted_ids = set(list(posted_ids)[-1000:])
                 return posted_ids
-    except (json.JSONDecodeError, IOError) as e:
-        logging.warning(f"Error loading posted_ids.json: {e}, creating new file")
-
-    with open("posted_ids.json", "w") as f:
-        json.dump([], f)
-    return set()
+        else:
+            # Initialize with empty set if file doesn't exist
+            save_posted_ids(set())
+            return set()
+    except Exception as e:
+        logging.error(f"Error loading posted_ids.json: {e}")
+        return set()
 
 
 def save_posted_ids(posted_ids):
     try:
-        # Create atomic write using temporary file
+        # Create backup of existing file
+        if os.path.exists("posted_ids.json"):
+            os.replace("posted_ids.json", "posted_ids.json.bak")
+
+        # Write new data atomically
         temp_file = "posted_ids.json.tmp"
         with open(temp_file, "w") as f:
             json.dump(list(posted_ids), f, indent=2)
+
+        # Atomic replace
         os.replace(temp_file, "posted_ids.json")
+
+        # Remove backup if everything succeeded
+        if os.path.exists("posted_ids.json.bak"):
+            os.remove("posted_ids.json.bak")
+
     except Exception as e:
+        # Restore from backup if something went wrong
+        if os.path.exists("posted_ids.json.bak"):
+            os.replace("posted_ids.json.bak", "posted_ids.json")
         logging.error(f"Error saving posted_ids.json: {e}")
 
 
