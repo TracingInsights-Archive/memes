@@ -767,8 +767,9 @@ def check_and_post():
                             if os.path.exists(filename):
                                 os.remove(filename)
                 else:
-                    logging.error("No valid media files processed for post %s", post.id)    except Exception as e:
-        logging.error(f"Error in check_and_post: {str(e)}")
+                    logging.error("No valid media files processed for post %s", post.id)    
+                        except Exception as e:
+                        logging.error(f"Error in check_and_post: {str(e)}")
 
 
 def main():
