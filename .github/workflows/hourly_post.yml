@@ -2,7 +2,7 @@ name: Hourly F1 Meme Poster
 
 on:
   schedule:
-    - cron: '0/15 * * * *'  
+    - cron: '0/15 * * * *'
   workflow_dispatch:      # Allow manual triggers
 
 jobs:
@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     # Add timeout for the entire job
-    timeout-minutes: 30
+
 
     steps:
     - uses: actions/checkout@v3
@@ -47,8 +47,8 @@ jobs:
         BLUESKY_EMAIL: ${{ secrets.BLUESKY_EMAIL }}
         BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
       run: python hello.py
-      timeout-minutes: 10
-      
+
+
 
     - name: Sync and commit changes
       run: |
