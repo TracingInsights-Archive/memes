@@ -55,7 +55,9 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         git fetch origin main
-        git reset --hard origin/main
+        git stash -u
+        git pull origin main --rebase
+        git stash pop || true
         git add posted_ids.json
         git diff --staged --quiet || (git commit -m "Update posted_ids.json [skip ci]" && git push origin main)
       timeout-minutes: 5
