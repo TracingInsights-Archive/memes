@@ -55,8 +55,14 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
 
+        # Stash any unstaged changes before pulling
+        git stash -u || true
+
         # Pull latest changes with rebase to avoid merge commits
         git pull --rebase origin main
+
+        # Apply stashed changes if any were stashed
+        git stash pop || true
 
         # Add and commit changes
         git add posted_ids.json
