@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 # Race-specific hashtag
-RACE_HASHTAG = "BahrainGP"
+RACE_HASHTAG = "SaudiArabianGP"
 
 # Update credentials section to use environment variables
 REDDIT_CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID")
