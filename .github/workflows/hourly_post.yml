@@ -46,26 +46,71 @@ jobs:
         REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
         BLUESKY_EMAIL: ${{ secrets.BLUESKY_EMAIL }}
         BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
-      run: python hello.py
+      run: |
+        # Save current posted_ids.json to a temporary file
+        cp posted_ids.json posted_ids.json.before || echo "[]" > posted_ids.json.before
 
+        # Run the main script
+        python hello.py
 
+        # Save the updated posted_ids.json to another temporary file
+        cp posted_ids.json posted_ids.json.after || echo "[]" > posted_ids.json.after
 
     - name: Sync and commit changes
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
 
-        # Stash any unstaged changes before pulling
-        git stash -u || true
+        # Get the latest changes from remote
+        git fetch origin main
 
-        # Pull latest changes with rebase to avoid merge commits
-        git pull --rebase origin main
+        # Create a Python script to safely merge the JSON files
+        cat > merge_json.py << 'EOF'
+        import json
+        import sys
 
-        # Apply stashed changes if any were stashed
-        git stash pop || true
+        # Load the original file (before our script ran)
+        with open('posted_ids.json.before', 'r') as f:
+            original_ids = json.load(f)
+
+        # Load the file after our script ran
+        with open('posted_ids.json.after', 'r') as f:
+            our_ids = json.load(f)
+
+        # Calculate which IDs were added by our script
+        new_ids = [id for id in our_ids if id not in original_ids]
+
+        # Load the latest remote version
+        with open('posted_ids.json', 'r') as f:
+            remote_ids = json.load(f)
+
+        # Add our new IDs to the remote version
+        merged_ids = remote_ids + new_ids
+
+        # Remove duplicates while preserving order
+        final_ids = []
+        seen = set()
+        for id in merged_ids:
+            if id not in seen:
+                final_ids.append(id)
+                seen.add(id)
+
+        # Write the result back
+        with open('posted_ids.json', 'w') as f:
+            json.dump(final_ids, f, indent=2)
+        EOF
+
+        # Reset to the latest remote version
+        git reset --hard origin/main
+
+        # Apply our changes using the Python script
+        python merge_json.py
 
         # Add and commit changes
         git add posted_ids.json
 
         # Only commit if there are changes
         git diff --staged --quiet || (git commit -m "Update posted_ids.json [skip ci]" && git push origin main)
+
+        # Clean up temporary files
+        rm -f posted_ids.json.before posted_ids.json.after merge_json.py
